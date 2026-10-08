@@ -144,6 +144,46 @@ Cara agar bisa diakses online:
 
 ---
 
+## 🔄 Yang Berubah dari Versi Sebelumnya (V1 → V2)
+
+Ini adalah **redesign penuh** dari website sebelumnya. Ringkasan perubahannya:
+
+### Tampilan / UI
+- **Desain ulang total** bergaya Odoo/ERP: bersih, modern, dan **seluruh teks berbahasa Inggris**.
+- **Tabel kaku (DataTables) diganti** tampilan **kartu/grid** dan **list** yang lebih fleksibel.
+- Ganti **Font Awesome → Material Symbols Rounded**, font **Inter**, dan Tailwind CSS.
+- **Responsif** — sidebar bisa di-collapse (desktop) dan jadi drawer penuh (mobile); bug buka/tutup sidebar diperbaiki.
+- Dukungan **tema terang/gelap** (light/dark).
+
+### Interaktivitas (JavaScript)
+- **Pencarian & filter instan** tanpa reload halaman.
+- **Toggle tampilan List / Grid** pada Inventory.
+- **Pagination** di Inventory (client-side) dan Finance (server-side): pilihan 25/50/100 baris, lompat halaman, Prev/Next.
+- **Modal** tambah/edit yang lebih rapi, notifikasi & konfirmasi pakai **SweetAlert2**.
+- **Stepper tombol − / +** untuk input angka.
+- **Cache-busting** aset (CSS/JS) supaya perubahan langsung tampil.
+
+### Inventory
+- **Dropdown Rack location** (A1–A5, B1–B5, …, Storage S1–S8) yang terpusat, menggantikan input teks bebas.
+- **Dropdown Sub-category mengikuti Category** yang dipilih.
+- **Batas input**: Quantity & Minimum stock 0–1.000, harga beli/jual maks Rp 9.999.999.
+- **Barcode opsional + auto-generate** (13 digit) bila dikosongkan.
+- Validasi stock-out tidak melebihi stok, di klien maupun server.
+
+### Keuangan
+- **Pagination server-side** + filter jenis/kategori yang tetap tersimpan antar halaman.
+- **Batas jumlah transaksi** maks Rp 1.000.000.000.
+- Label mata uang ringkas diperbaiki (**Jt / Rb / Miliar**).
+
+### Data & Keamanan
+- Kolom numerik database **diperbesar** (`jumlah`/`min_stock` → `BIGINT`, harga & jumlah keuangan → `DECIMAL(18,2)`) agar tidak cepat mentok.
+- `config/database.php` kini mendukung **proxy/tunnel** (`X-Forwarded-Proto`) sehingga `BASE_URL` otomatis `https` saat online.
+
+### Manajemen User
+- Daftar user **dirapikan** (hanya menyisakan akun yang relevan), akun admin tetap dilindungi.
+
+---
+
 ## 📄 Lisensi
 
 Dirilis di bawah lisensi **MIT**. Bebas dipakai dan dimodifikasi untuk keperluan belajar.
