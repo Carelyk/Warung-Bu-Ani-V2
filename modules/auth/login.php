@@ -1,5 +1,4 @@
 <?php
-session_start();
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../includes/functions.php';
 
@@ -10,6 +9,8 @@ if (isAdminLoggedIn() || isUserLoggedIn()) {
 $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    requireCsrf();
+
     $username = clean($_POST['username'] ?? '');
     $password = $_POST['password'] ?? '';
 
@@ -23,6 +24,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if ($user && password_verify($password, $user['password'])) {
                 if ($user['status'] === 'active') {
+                    // Prevent session fixation: new ID once privileges change.
+                    refreshSession();
+
                     $session = [
                         'id' => $user['id'],
                         'username' => $user['username'],
@@ -42,6 +46,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = 'Incorrect username or password.';
             }
         } catch (PDOException $e) {
+            error_log('Login query failed: ' . $e->getMessage());
             $error = 'A system error occurred. Please try again later.';
         }
     }
@@ -122,6 +127,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <?php endif; ?>
 
             <form method="POST" style="display:flex;flex-direction:column;gap:16px">
+                <?= csrfField() ?>
                 <div class="field">
                     <label for="username">Username</label>
                     <div class="input-wrap">

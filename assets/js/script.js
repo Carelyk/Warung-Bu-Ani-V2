@@ -495,7 +495,42 @@
     window.toast = toast;
     window.formatNumberDisplay = formatNumberDisplay;
     window.cleanNumber = cleanNumber;
-    window.confirmDelete = function (url, msg) {
+    /**
+     * POST an action after the user confirms.
+     *
+     * These actions delete rows or change account status, so they must not be
+     * GETs: a plain link can be triggered by any third-party page. The POST
+     * carries the CSRF token that the module validates.
+     */
+    window.postAction = function (url, token) {
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.style.display = 'none';
+
+        const [path, query = ''] = url.split('?');
+        form.action = path;
+
+        query.split('&').forEach(pair => {
+            if (!pair) return;
+            const [key, value = ''] = pair.split('=');
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = decodeURIComponent(key);
+            input.value = decodeURIComponent(value);
+            form.appendChild(input);
+        });
+
+        const csrf = document.createElement('input');
+        csrf.type = 'hidden';
+        csrf.name = 'csrf_token';
+        csrf.value = token || '';
+        form.appendChild(csrf);
+
+        document.body.appendChild(form);
+        form.submit();
+    };
+
+    window.confirmDelete = function (url, msg, token) {
         Swal.fire({
             title: 'Delete this item?',
             text: msg || 'This action cannot be undone.',
@@ -505,9 +540,9 @@
             cancelButtonColor: '#94a3b8',
             confirmButtonText: 'Yes, delete',
             cancelButtonText: 'Cancel'
-        }).then(res => { if (res.isConfirmed) window.location.href = url; });
+        }).then(res => { if (res.isConfirmed) window.postAction(url, token); });
     };
-    window.confirmAction = function (url, msg) {
+    window.confirmAction = function (url, msg, token) {
         Swal.fire({
             title: 'Please confirm',
             text: msg || 'Continue?',
@@ -517,7 +552,7 @@
             cancelButtonColor: '#94a3b8',
             confirmButtonText: 'Yes, continue',
             cancelButtonText: 'Cancel'
-        }).then(res => { if (res.isConfirmed) window.location.href = url; });
+        }).then(res => { if (res.isConfirmed) window.postAction(url, token); });
     };
     window.chartColors = chartColors;
     window.toggleTheme = toggleTheme;

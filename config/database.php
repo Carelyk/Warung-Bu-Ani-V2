@@ -23,21 +23,39 @@ define('BASE_URL', $base_url ?: 'http://localhost/warung-bu-ani');
 date_default_timezone_set('Asia/Jakarta');
 
 /**
- * Konfigurasi Database untuk Lingkungan Lokal (XAMPP)
+ * Konfigurasi Database
+ *
+ * Nilai bisa di-override lewat environment variable, sehingga kode yang sama
+ * berjalan di XAMPP lokal maupun di hosting tanpa perlu mengedit file ini.
  */
-try {
-    $host = 'localhost';
-    $dbname = 'sistem_inventori';
-    $username = 'root';
-    $password = ''; // Standar XAMPP tidak memiliki password
+$db_host = getenv('DB_HOST') ?: 'localhost';
+$db_name = getenv('DB_NAME') ?: 'sistem_inventori';
+$db_user = getenv('DB_USER') ?: 'root';
+$db_pass = getenv('DB_PASS') ?: '';
 
-    // Membuat koneksi PDO ke database
-    $db = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $username, $password, [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, // Tampilkan error jika koneksi gagal
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC // Ambil data sebagai associative array
+try {
+    $db = new PDO("mysql:host={$db_host};dbname={$db_name};charset=utf8mb4", $db_user, $db_pass, [
+        PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        PDO::ATTR_EMULATE_PREPARES   => false, // prepared statement asli
     ]);
 } catch (PDOException $e) {
-    // --- DEBUGGING: Hentikan eksekusi dan tampilkan error koneksi yang sebenarnya ---
-    die("Database Connection Error: " . $e->getMessage());
+    // Pesan mentah dari driver bisa memuat nama host, user, dan detail server,
+    // jadi hanya dicatat ke log. Pengguna menerima pesan yang bisa ditindaklanjuti.
+    error_log('Database connection failed: ' . $e->getMessage());
+
+    if (!headers_sent()) {
+        http_response_code(500);
+        header('Content-Type: text/plain; charset=utf-8');
+    }
+    exit(
+        "Koneksi database gagal.\n\n" .
+        "Periksa konfigurasi berikut di config/database.php:\n" .
+        "  host     : {$db_host}\n" .
+        "  database : {$db_name}\n" .
+        "  user     : {$db_user}\n\n" .
+        "Pastikan MySQL sudah berjalan dan database sudah dibuat " .
+        "(jalankan setup_database.php). Detail teknis tersimpan di error log server."
+    );
 }
 ?>

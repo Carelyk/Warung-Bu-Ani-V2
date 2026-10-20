@@ -7,8 +7,13 @@ if (!isAdminLoggedIn()) {
     redirect('modules/dashboard/');
 }
 
-$action = $_GET['action'] ?? '';
-$id     = $_GET['id'] ?? '';
+// Validate the CSRF token once for every write in this module.
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    requireCsrf();
+}
+
+$action = $_POST['action'] ?? $_GET['action'] ?? '';
+$id     = $_POST['id'] ?? $_GET['id'] ?? '';
 $me     = $_SESSION['admin']['id'] ?? null;
 
 /* Block self status/role changes */
@@ -18,7 +23,7 @@ if ($id && $me && $id == $me) {
 }
 
 /* Activate / deactivate */
-if (($action === 'activate' || $action === 'deactivate') && $id) {
+if (($action === 'activate' || $action === 'deactivate') && $id && $_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         $stmt = $db->prepare("SELECT role FROM users WHERE id = ?");
         $stmt->execute([$id]);
@@ -36,7 +41,7 @@ if (($action === 'activate' || $action === 'deactivate') && $id) {
 }
 
 /* Delete */
-if ($action === 'delete' && $id) {
+if ($action === 'delete' && $id && $_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         $stmt = $db->prepare("DELETE FROM users WHERE id = ? AND role != 'admin'");
         $stmt->execute([$id]);
@@ -157,15 +162,15 @@ require_once __DIR__ . '/../../layout/header.php';
                     </button>
                     <?php if ($user['role'] !== 'admin'): ?>
                         <?php if ($user['status'] === 'active'): ?>
-                            <button class="icon-btn btn-icon" title="Deactivate" onclick="confirmAction('<?= BASE_URL ?>/modules/user_management/index.php?action=deactivate&id=<?= (int) $user['id'] ?>', 'Deactivate this user?')">
+                            <button class="icon-btn btn-icon" title="Deactivate" onclick="confirmAction('<?= BASE_URL ?>/modules/user_management/index.php?action=deactivate&id=<?= (int) $user['id'] ?>', 'Deactivate this user?', '<?= e(csrfToken()) ?>')">
                                 <span class="material-symbols-rounded">toggle_on</span>
                             </button>
                         <?php else: ?>
-                            <button class="icon-btn btn-icon" title="Activate" onclick="confirmAction('<?= BASE_URL ?>/modules/user_management/index.php?action=activate&id=<?= (int) $user['id'] ?>', 'Activate this user?')">
+                            <button class="icon-btn btn-icon" title="Activate" onclick="confirmAction('<?= BASE_URL ?>/modules/user_management/index.php?action=activate&id=<?= (int) $user['id'] ?>', 'Activate this user?', '<?= e(csrfToken()) ?>')">
                                 <span class="material-symbols-rounded">toggle_off</span>
                             </button>
                         <?php endif; ?>
-                        <button class="icon-btn btn-icon" title="Delete" style="color:var(--danger)" onclick="confirmDelete('<?= BASE_URL ?>/modules/user_management/index.php?action=delete&id=<?= (int) $user['id'] ?>', 'Delete this user?')">
+                        <button class="icon-btn btn-icon" title="Delete" style="color:var(--danger)" onclick="confirmDelete('<?= BASE_URL ?>/modules/user_management/index.php?action=delete&id=<?= (int) $user['id'] ?>', 'Delete this user?', '<?= e(csrfToken()) ?>')">
                             <span class="material-symbols-rounded">delete</span>
                         </button>
                     <?php else: ?>
@@ -182,6 +187,7 @@ require_once __DIR__ . '/../../layout/header.php';
 <div class="modal-overlay" id="editUserModal">
     <div class="modal-card">
         <form action="<?= BASE_URL ?>/modules/user_management/index.php" method="POST">
+            <?= csrfField() ?>
             <input type="hidden" name="action" value="update_user">
             <input type="hidden" name="id">
             <div class="modal-head">

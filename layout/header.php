@@ -101,9 +101,13 @@ try {
                                     <small>@<?= htmlspecialchars($app_user['username'] ?? 'user') ?></small>
                                 </div>
                             </div>
-                            <a href="<?= BASE_URL ?>/modules/auth/logout.php" class="user-menu-item danger">
-                                <span class="material-symbols-rounded">logout</span> Sign out
-                            </a>
+                            <?php // Sign-out is a POST so it cannot be triggered by a third-party GET. ?>
+                            <form method="POST" action="<?= BASE_URL ?>/modules/auth/logout.php">
+                                <?= csrfField() ?>
+                                <button type="submit" class="user-menu-item danger">
+                                    <span class="material-symbols-rounded">logout</span> Sign out
+                                </button>
+                            </form>
                         </div>
                     </div>
                 </div>

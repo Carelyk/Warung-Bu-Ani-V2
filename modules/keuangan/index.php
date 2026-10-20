@@ -7,6 +7,11 @@ if (!isAdminLoggedIn()) {
     redirect('modules/dashboard/');
 }
 
+// Validate the CSRF token once for every write in this module.
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    requireCsrf();
+}
+
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 $id     = $_POST['id'] ?? $_GET['id'] ?? '';
 
@@ -67,7 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'edit') {
 /* ---------------------------------------------------------------------
  * Delete transaction
  * ------------------------------------------------------------------- */
-if ($action === 'delete' && $id) {
+if ($action === 'delete' && $id && $_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         $db->prepare("DELETE FROM keuangan WHERE id = ?")->execute([$id]);
         setFlash('success', 'Transaction deleted.');
@@ -242,7 +247,7 @@ require_once __DIR__ . '/../../layout/header.php';
                     <button class="icon-btn btn-icon" title="Edit" onclick='openModal("editKeuanganModal", <?= json_encode($k, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>
                         <span class="material-symbols-rounded">edit</span>
                     </button>
-                    <button class="icon-btn btn-icon" title="Delete" style="color:var(--danger)" onclick="confirmDelete('<?= BASE_URL ?>/modules/keuangan/index.php?action=delete&id=<?= (int) $k['id'] ?>', 'Delete this transaction?')">
+                    <button class="icon-btn btn-icon" title="Delete" style="color:var(--danger)" onclick="confirmDelete('<?= BASE_URL ?>/modules/keuangan/index.php?action=delete&id=<?= (int) $k['id'] ?>', 'Delete this transaction?', '<?= e(csrfToken()) ?>')">
                         <span class="material-symbols-rounded">delete</span>
                     </button>
                 </span>
@@ -305,6 +310,7 @@ require_once __DIR__ . '/../../layout/header.php';
 <div class="modal-overlay" id="addKeuanganModal">
     <div class="modal-card">
         <form action="<?= BASE_URL ?>/modules/keuangan/index.php" method="POST">
+            <?= csrfField() ?>
             <input type="hidden" name="action" value="add">
             <div class="modal-head">
                 <h3>Add Transaction</h3>
@@ -352,6 +358,7 @@ require_once __DIR__ . '/../../layout/header.php';
 <div class="modal-overlay" id="editKeuanganModal">
     <div class="modal-card">
         <form action="<?= BASE_URL ?>/modules/keuangan/index.php" method="POST">
+            <?= csrfField() ?>
             <input type="hidden" name="action" value="edit">
             <input type="hidden" name="id">
             <div class="modal-head">

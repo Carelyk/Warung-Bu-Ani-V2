@@ -7,6 +7,12 @@ if (!isLoggedIn()) {
     redirect('modules/auth/login.php');
 }
 
+// Every write in this module arrives by POST, so validate the CSRF token once
+// here instead of in each handler below.
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    requireCsrf();
+}
+
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 $id     = $_POST['id'] ?? $_GET['id'] ?? '';
 
@@ -174,7 +180,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'stock_out') {
 /* ---------------------------------------------------------------------
  * Delete product
  * ------------------------------------------------------------------- */
-if ($action === 'delete' && $id) {
+if ($action === 'delete' && $id && $_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         $db->prepare("DELETE FROM barang WHERE id = ?")->execute([$id]);
         setFlash('success', 'Product deleted.');
@@ -329,7 +335,7 @@ function renderRackSelect($selected = '') {
                     <button class="icon-btn btn-icon" title="Edit" onclick='openModal("editModal", <?= json_encode($b, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>
                         <span class="material-symbols-rounded">edit</span>
                     </button>
-                    <button class="icon-btn btn-icon" title="Delete" style="color:var(--danger)" onclick="confirmDelete('<?= BASE_URL ?>/modules/inventori/inventori.php?action=delete&id=<?= (int) $b['id'] ?>', 'Delete <?= htmlspecialchars(addslashes($b['nama_barang'])) ?>?')">
+                    <button class="icon-btn btn-icon" title="Delete" style="color:var(--danger)" onclick="confirmDelete('<?= BASE_URL ?>/modules/inventori/inventori.php?action=delete&id=<?= (int) $b['id'] ?>', 'Delete <?= htmlspecialchars(addslashes($b['nama_barang'])) ?>?', '<?= e(csrfToken()) ?>')">
                         <span class="material-symbols-rounded">delete</span>
                     </button>
                 </span>
@@ -411,6 +417,7 @@ function renderRackSelect($selected = '') {
 <div class="modal-overlay" id="addModal">
     <div class="modal-card modal-lg">
         <form action="<?= BASE_URL ?>/modules/inventori/inventori.php" method="POST">
+            <?= csrfField() ?>
             <input type="hidden" name="action" value="add">
             <div class="modal-head">
                 <h3>Add Product</h3>
@@ -494,6 +501,7 @@ function renderRackSelect($selected = '') {
 <div class="modal-overlay" id="editModal">
     <div class="modal-card modal-lg">
         <form action="<?= BASE_URL ?>/modules/inventori/inventori.php" method="POST">
+            <?= csrfField() ?>
             <input type="hidden" name="action" value="edit">
             <input type="hidden" name="id">
             <div class="modal-head">
@@ -537,6 +545,7 @@ function renderRackSelect($selected = '') {
 <div class="modal-overlay" id="stockOutModal">
     <div class="modal-card">
         <form action="<?= BASE_URL ?>/modules/inventori/inventori.php" method="POST" id="stockOutForm">
+            <?= csrfField() ?>
             <input type="hidden" name="action" value="stock_out">
             <input type="hidden" name="id" id="stockOutItemId">
             <input type="hidden" name="nama_barang" id="stockOutItemName">

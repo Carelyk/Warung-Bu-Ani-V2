@@ -9,6 +9,16 @@
  */
 
 if (session_status() == PHP_SESSION_NONE) {
+    // Harden the session cookie before the session starts.
+    session_set_cookie_params([
+        'lifetime' => 0,
+        'path'     => '/',
+        'httponly' => true,   // not readable from JavaScript
+        'samesite' => 'Lax',  // blocks cross-site POSTs from other origins
+        'secure'   => (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+                      || ($_SERVER['SERVER_PORT'] ?? null) == 443
+                      || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https'),
+    ]);
     session_start();
 }
 
@@ -18,7 +28,23 @@ if (!defined('APP_NAME')) define('APP_NAME', 'Bu Ani Shop');
 /* ---------------------------------------------------------------------
  * Sanitasi & Navigasi
  * ------------------------------------------------------------------- */
-function clean($data) { return htmlspecialchars(stripslashes(trim((string) $data))); }
+
+/**
+ * Trim and strip slashes from user input.
+ *
+ * This only normalises a value. It does NOT make it safe for HTML; escaping
+ * happens at the point of output, with e().
+ */
+function clean($data) { return trim(stripslashes((string) $data)); }
+
+/**
+ * Escape a value for safe output in HTML.
+ *
+ * Every place that prints data coming from a request or the database should
+ * wrap it in e(). The behaviour matches htmlspecialchars() with UTF-8 and
+ * ENT_QUOTES, which is what the templates already assume.
+ */
+function e($value) { return htmlspecialchars((string) ($value ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
 
 function redirect($path) {
     $url = BASE_URL . '/' . ltrim($path, '/');
@@ -27,11 +53,51 @@ function redirect($path) {
 }
 
 /* ---------------------------------------------------------------------
+ * CSRF protection
+ *
+ * Every state-changing request (POST, and destructive GET such as logout)
+ * must carry a token. Without it, another site could submit the shop's own
+ * forms on behalf of a signed-in user.
+ * ------------------------------------------------------------------- */
+
+/** Return the per-session CSRF token, generating it on first use. */
+function csrfToken() {
+    if (empty($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+    return $_SESSION['csrf_token'];
+}
+
+/** Render a hidden input carrying the CSRF token. */
+function csrfField() {
+    return '<input type="hidden" name="csrf_token" value="' . e(csrfToken()) . '">';
+}
+
+/**
+ * Abort the request unless it carries a valid CSRF token.
+ *
+ * Sends the user back to the referring page with a flash message, so a stale
+ * form gives a clear explanation instead of a bare error page.
+ */
+function requireCsrf() {
+    $sent = $_POST['csrf_token'] ?? $_GET['csrf_token'] ?? '';
+    if (!is_string($sent) || $sent === '' || !hash_equals(csrfToken(), $sent)) {
+        setFlash('error', 'Sesi kedaluwarsa atau permintaan tidak valid. Silakan coba lagi.');
+        $back = $_SERVER['HTTP_REFERER'] ?? BASE_URL;
+        header('Location: ' . $back);
+        exit;
+    }
+}
+
+/* ---------------------------------------------------------------------
  * Session helpers
  * ------------------------------------------------------------------- */
 function isLoggedIn()       { return isset($_SESSION['admin']) || isset($_SESSION['user']); }
 function isAdminLoggedIn()  { return isset($_SESSION['admin']); }
 function isUserLoggedIn()   { return isset($_SESSION['user']); }
+
+/** Regenerate the session ID after a privilege change, then drop the old file. */
+function refreshSession() { session_regenerate_id(true); }
 
 function getActiveUser() {
     return $_SESSION['admin'] ?? ($_SESSION['user'] ?? null);
@@ -226,13 +292,18 @@ function initials($name) {
     return strtoupper($first . $last);
 }
 
+/** Next item code for a category prefix, e.g. BRG0007. Uses a bound parameter. */
 function generateKodeBarang($kategori = 'ATK') {
     global $db;
     $map = ['ATK' => 'BRG', 'Snacks' => 'SNK', 'Drinks' => 'DRK', 'Household' => 'HHD'];
     $prefix = $map[$kategori] ?? 'BRG';
-    $q = $db->query("SELECT MAX(CAST(SUBSTRING(kode_barang, 4) AS UNSIGNED)) as max_id FROM barang WHERE kode_barang LIKE '$prefix%'");
-    $kode = (int) ($q->fetch()['max_id'] ?? 0);
-    return $prefix . sprintf("%04d", ++$kode);
+    $stmt = $db->prepare(
+        "SELECT MAX(CAST(SUBSTRING(kode_barang, ?) AS UNSIGNED)) AS max_id
+           FROM barang WHERE kode_barang LIKE ?"
+    );
+    $stmt->execute([strlen($prefix) + 1, $prefix . '%']);
+    $kode = (int) ($stmt->fetch()['max_id'] ?? 0);
+    return $prefix . sprintf("%04d", $kode + 1);
 }
 
 function checkActive($path) {

@@ -55,10 +55,14 @@ $role     = $app_user['role'] ?? 'user';
             <span class="material-symbols-rounded nav-icon-light">dark_mode</span>
             <span class="nav-label">Theme</span>
         </button>
-        <a href="<?= BASE_URL ?>/modules/auth/logout.php" class="nav-action danger">
-            <span class="material-symbols-rounded">logout</span>
-            <span class="nav-label">Sign out</span>
-        </a>
+        <?php // Sign-out is a POST so it cannot be triggered by a third-party GET. ?>
+        <form method="POST" action="<?= BASE_URL ?>/modules/auth/logout.php" class="logout-form">
+            <?= csrfField() ?>
+            <button type="submit" class="nav-action danger">
+                <span class="material-symbols-rounded">logout</span>
+                <span class="nav-label">Sign out</span>
+            </button>
+        </form>
     </div>
 </aside>
 <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
