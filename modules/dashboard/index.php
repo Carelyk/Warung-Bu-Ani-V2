@@ -325,10 +325,12 @@ document.addEventListener('DOMContentLoaded', function () {
         fetch(API_BASE + '?period=' + period)
             .then(r => r.json())
             .then(data => {
-                flowChart.data.labels = data.labels;
-                flowChart.data.datasets[0].data = data.income;
-                flowChart.data.datasets[1].data = data.expense;
-                flowChart.update();
+                if (data && data.labels && data.income && data.expense && flowChart) {
+                    flowChart.data.labels = data.labels;
+                    flowChart.data.datasets[0].data = data.income;
+                    flowChart.data.datasets[1].data = data.expense;
+                    flowChart.update();
+                }
             })
             .catch(err => console.error(err));
     };
