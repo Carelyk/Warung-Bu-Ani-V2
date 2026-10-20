@@ -117,7 +117,15 @@ function renderFlash() {
     $f = $_SESSION['flash_message'];
     unset($_SESSION['flash_message']);
     $type = in_array($f['type'], ['success', 'error', 'warning', 'info']) ? $f['type'] : 'info';
-    return '<script>window.__FLASH__ = ' . json_encode(['type' => $type, 'message' => $f['message']]) . ';</script>';
+
+    // json_encode with HEX flags keeps the payload safe to place inside a
+    // <script> block: <, >, & and quotes are escaped, so a message can never
+    // break out of the tag even if it contains user-supplied text.
+    $payload = json_encode(
+        ['type' => $type, 'message' => (string) $f['message']],
+        JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE
+    );
+    return '<script>window.__FLASH__ = ' . $payload . ';</script>';
 }
 
 /* ---------------------------------------------------------------------
@@ -236,6 +244,85 @@ function generateBarcode($db = null) {
         $stmt->execute([$code]);
     } while ((int) $stmt->fetchColumn() > 0);
     return $code;
+}
+
+/* ---------------------------------------------------------------------
+ * Input validation
+ *
+ * Values that end up in an ENUM or DATE column must be checked against the
+ * allowed set before they reach SQL. MySQL silently coerces an unknown ENUM
+ * value to '' and turns an invalid date into 0000-00-00, so an unvalidated
+ * POST can quietly corrupt a row.
+ * ------------------------------------------------------------------- */
+
+/**
+ * Return $value when it is one of $allowed, otherwise $fallback.
+ * Comparison is strict, so '1' never matches the integer 1.
+ */
+function oneOf($value, array $allowed, $fallback = null) {
+    return in_array($value, $allowed, true) ? $value : $fallback;
+}
+
+/** The three states a user account can be in. */
+function userStatuses() { return ['pending', 'active', 'inactive']; }
+
+/** The two account roles. */
+function userRoles() { return ['admin', 'user']; }
+
+/** Cash-flow directions. */
+function financeTypes() { return ['masuk', 'keluar']; }
+
+/** Accepted payment methods. */
+function financeMethods() { return ['cash', 'transfer', 'qris']; }
+
+/** All finance categories, income and expense combined. */
+function financeCategories() {
+    return [
+        'Product Sales', 'Other Income',
+        'Stock Purchase', 'Salary', 'Rent', 'Utilities', 'Transport', 'Marketing', 'Other Expense',
+    ];
+}
+
+/** Product categories, the single source of truth for the dropdown. */
+function productCategories() { return ['ATK', 'Snacks', 'Drinks', 'Household']; }
+
+/** Valid units of measure for a product. */
+function productUnits() {
+    return ['pcs', 'pack', 'box', 'pair', 'ream', 'bottle', 'can', 'sachet', 'unit', 'lusin'];
+}
+
+/**
+ * Normalise a submitted date to Y-m-d, or return $fallback when it is not a
+ * real calendar date. Accepts the datetime strings some forms send and keeps
+ * only the date part.
+ */
+function normalizeDate($value, $fallback = null) {
+    $value = trim((string) $value);
+    if ($value === '') return $fallback;
+
+    // Take the date portion of a datetime like "2026-10-20 13:45:00".
+    if (preg_match('/^(\d{4}-\d{2}-\d{2})/', $value, $m)) {
+        $value = $m[1];
+    }
+
+    $dt = DateTime::createFromFormat('Y-m-d', $value);
+    // createFromFormat accepts overflow (2026-02-31); check the round trip.
+    if ($dt && $dt->format('Y-m-d') === $value && $value !== '0000-00-00') {
+        return $value;
+    }
+    return $fallback;
+}
+
+/**
+ * Truncate a string to at most $max characters (multibyte aware) so it always
+ * fits its database column instead of being silently cut off by MySQL.
+ */
+function limitText($value, $max) {
+    $value = trim((string) $value);
+    if (function_exists('mb_substr')) {
+        return mb_substr($value, 0, $max);
+    }
+    return substr($value, 0, $max);
 }
 
 function stockStatus($item) {

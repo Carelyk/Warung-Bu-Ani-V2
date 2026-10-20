@@ -223,6 +223,29 @@ Token dipasang di **semua** form POST (login, 6 form modal CRUD, tombol sign-out
 - **`generateKodeBarang()`** memakai interpolasi `"$prefix%"` langsung ke SQL. Diganti **prepared statement** dengan parameter terikat.
 - **`clean()`** melakukan `htmlspecialchars()` pada **input**, lalu hasilnya disimpan ke database (double-encoding). Kini `clean()` hanya menormalkan input; escaping dilakukan di titik **output** lewat helper baru `e()`. Perilaku `htmlspecialchars()` yang sudah dipakai di template tetap dipertahankan.
 
+### 7. Validasi Input yang Hilang (putaran kedua)
+**Masalah.** Nilai dari POST yang berakhir di kolom `ENUM` atau `DATE` tidak divalidasi. MySQL **diam-diam mengubah nilai ENUM yang tidak dikenal menjadi string kosong** dan **tanggal tidak valid menjadi `0000-00-00`**, sehingga satu POST yang dibuat khusus bisa merusak baris tanpa error apa pun. Ini terbukti saat audit:
+
+| Input yang dikirim | Akibat sebelum diperbaiki |
+|---|---|
+| `jenis=NGawur`, `metode=bogus`, `kategori=HackedCat` | `jenis` jadi kosong `''`, `metode` jadi `bogus`, `kategori` jadi `HackedCat` |
+| `role=superadmin`, `status=enabled` | `role` dan `status` user jadi kosong `''` (hak akses hilang) |
+| `tanggal=not-a-date` | tersimpan `0000-00-00` |
+
+**Perbaikan.** Ditambahkan helper validasi di `includes/functions.php`:
+- `oneOf($value, $allowed, $fallback)` — hanya menerima nilai dalam daftar, jika tidak pakai fallback.
+- `normalizeDate($value, $fallback)` — memakai `DateTime::createFromFormat` + cek putar-balik, sehingga `2026-02-31` pun ditolak (bukan hanya formatnya yang dicek).
+- `limitText($value, $max)` — memotong teks agar selalu muat kolom (`nama_lengkap` 50, `username` 30, `kode_barang` 20, `barcode` 30) alih-alih dipotong diam-diam oleh MySQL.
+
+Daftar kategori/unit/role/status/metode kini punya **satu sumber kebenaran** (`productCategories()`, `productUnits()`, `userRoles()`, `userStatuses()`, `financeTypes()`, `financeMethods()`, `financeCategories()`), dipakai bersama oleh dropdown, filter, dan validasi server.
+
+### 8. Rincian yang Diperketat
+- **Tidak ada lagi detail database yang bocor.** Sisa 6 pemanggilan `$e->getMessage()` ke `setFlash()` (`inventori` ×3, `keuangan` ×3) diganti pesan ramah; detailnya ke `error_log()`. Pesan aturan bisnis (stok tidak cukup, produk tidak ada) tetap ditampilkan karena aman dan memang berguna.
+- **Hapus lewat GET kini memberi pesan**, bukan diabaikan diam-diam ("Delete must be submitted through the page buttons.").
+- **Login form** kini menolak aksi tanpa token dengan pesan, dan **`stock_out`** memvalidasi jumlah > 0 sebelum menyentuh transaksi.
+- **Penjaga admin terakhir** diperkuat: admin terakhir tidak bisa diturunkan **maupun dinonaktifkan** (sebelumnya hanya cek demosi).
+- **`renderFlash()`** memakai `json_encode` dengan flag `JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT`, sehingga pesan yang memuat teks dari pengguna tidak bisa keluar dari blok `<script>` (XSS).
+
 ### Verifikasi
 Diuji pada PHP 8.2.12 + MySQL (XAMPP):
 
@@ -239,8 +262,16 @@ Diuji pada PHP 8.2.12 + MySQL (XAMPP):
 | Session ID setelah login | **berganti** (anti session fixation) |
 | POST add/delete dengan token | **berfungsi** (130 → 131 → 130) |
 | Halaman render | **0 PHP error** di semua modul |
+| `jenis`/`metode`/`kategori` ngawur | **ditolak** (tetap nilai enum yang sah) |
+| `role`/`status` ngawur | **ditolak** (tidak lagi jadi string kosong) |
+| `tanggal` ngawur | **ditolak** jadi `2026-10-20`, bukan `0000-00-00` |
+| `kategori`/`satuan_type` ngawur | **dinormalisasi** ke nilai sah |
+| GET `?action=delete` | **memberi pesan jelas**, data tidak berubah |
+| Detail DB di halaman | **0 kebocoran** (`SQLSTATE`/`PDOException` tidak muncul) |
 
 > Catatan desain: permintaan tanpa token yang valid **dialihkan kembali dengan pesan ramah** (bukan halaman 403 kosong), supaya pengguna tahu penyebabnya. Yang penting, permintaan itu **tidak pernah** mengubah data atau memutus sesi.
+
+> Catatan proses: saat audit di atas, uji otomatis menyentuh **satu baris data contoh** (keuangan `id=1498`) dan status akun `user01`. `user01` dipulihkan penuh ke `user/active`. Baris `1498` aslinya adalah transaksi *Restock* (`keluar`/`transfer`/`Stock Purchase`), tetapi keterangan/tanggal/jumlah persisnya tidak dapat dipulihkan karena tidak ada backup atau binlog; baris itu direkonstruksi mengikuti pola yang sama dengan data seed. Uji regresi berikutnya diubah menjadi **non-destruktif**: setiap uji membuat baris buangannya sendiri lalu menghapusnya.
 
 ---
 

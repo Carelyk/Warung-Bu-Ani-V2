@@ -42,9 +42,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'add') {
         setFlash('error', 'Product name must be at least 2 characters.');
         redirect('modules/inventori/inventori.php');
     }
-    if ($name_len > 80) {
-        $nama_barang = function_exists('mb_substr') ? mb_substr($nama_barang, 0, 80) : substr($nama_barang, 0, 80);
-    }
+    $nama_barang = limitText($nama_barang, 80);
+    $kategori    = oneOf($kategori, productCategories(), productCategories()[0]);
+    $satuan_type = oneOf($satuan_type, productUnits(), 'pcs');
+    $kode_barang = limitText($kode_barang, 20);
+    $barcode     = limitText($barcode, 30);
     $jumlah     = min(1000, max(0, $jumlah));
     $min_stock  = min(1000, max(0, $min_stock));
     $harga      = max(0, min(9999999, (int) $harga));
@@ -68,7 +70,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'add') {
             setFlash('success', 'Product added successfully.');
         }
     } catch (PDOException $e) {
-        setFlash('error', 'Could not add product: ' . $e->getMessage());
+        error_log('Add product failed: ' . $e->getMessage());
+        setFlash('error', 'Could not add the product. Please try again.');
     }
     redirect('modules/inventori/inventori.php');
 }
@@ -99,9 +102,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'edit') {
         setFlash('error', 'Product name must be at least 2 characters.');
         redirect('modules/inventori/inventori.php');
     }
-    if ($name_len > 80) {
-        $nama_barang = function_exists('mb_substr') ? mb_substr($nama_barang, 0, 80) : substr($nama_barang, 0, 80);
-    }
+    $nama_barang = limitText($nama_barang, 80);
+    $kategori    = oneOf($kategori, productCategories(), productCategories()[0]);
+    $satuan_type = oneOf($satuan_type, productUnits(), 'pcs');
+    $kode_barang = limitText($kode_barang, 20);
+    $barcode     = limitText($barcode, 30);
     $jumlah     = min(1000, max(0, $jumlah));
     $min_stock  = min(1000, max(0, $min_stock));
     $harga      = max(0, min(9999999, (int) $harga));
@@ -125,7 +130,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'edit') {
             setFlash('success', 'Product updated successfully.');
         }
     } catch (PDOException $e) {
-        setFlash('error', 'Failed to update product: ' . $e->getMessage());
+        error_log('Update product failed: ' . $e->getMessage());
+        setFlash('error', 'Could not update the product. Please try again.');
     }
     redirect('modules/inventori/inventori.php');
 }
@@ -136,8 +142,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'edit') {
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'stock_out') {
     $id       = clean($_POST['id'] ?? '');
     $quantity = (int) preg_replace('/\D/', '', $_POST['quantity'] ?? '0');
-    $price    = (float) preg_replace('/\D/', '', $_POST['price_at_transaction'] ?? '0');
-    $date     = clean($_POST['date'] ?? date('Y-m-d H:i:s'));
+    $price    = (float) preg_replace('/[^0-9.]/', '', $_POST['price_at_transaction'] ?? '0');
+    $date     = normalizeDate($_POST['date'] ?? '', date('Y-m-d'));
     $note     = clean($_POST['note'] ?? '');
     $nama_barang = clean($_POST['nama_barang'] ?? '');
     $user_id  = getActiveUser()['id'] ?? null;
@@ -147,8 +153,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'stock_out') {
         redirect('modules/inventori/inventori.php');
     }
 
+    if ($quantity <= 0) {
+        setFlash('error', 'Quantity must be greater than zero.');
+        redirect('modules/inventori/inventori.php');
+    }
+
     $total = $quantity * $price;
-    $keterangan = 'Sale: ' . $nama_barang . ($note ? ' (' . $note . ')' : '');
+    $keterangan = limitText('Sale: ' . $nama_barang . ($note ? ' (' . $note . ')' : ''), 1000);
 
     try {
         $db->beginTransaction();
@@ -156,8 +167,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'stock_out') {
         $stmt->execute([$id]);
         $current_stock = $stmt->fetchColumn();
 
-        if ($current_stock === false || $quantity <= 0) {
-            throw new Exception('Quantity must be greater than zero.');
+        if ($current_stock === false) {
+            throw new Exception('The product no longer exists.');
         }
         if ($quantity > $current_stock) {
             throw new Exception("Not enough stock. Available: $current_stock.");
@@ -172,7 +183,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'stock_out') {
         setFlash('success', 'Sale recorded. Stock and finance were updated.');
     } catch (Exception $e) {
         if ($db->inTransaction()) $db->rollBack();
-        setFlash('error', 'Could not record the sale: ' . $e->getMessage());
+        // Business-rule messages (stock, missing product) are safe to show;
+        // unexpected database errors are not, so they go to the log instead.
+        $message = $e instanceof PDOException
+            ? 'Could not record the sale due to a database error.'
+            : $e->getMessage();
+        if ($e instanceof PDOException) error_log('Stock out failed: ' . $e->getMessage());
+        setFlash('error', $message);
     }
     redirect('modules/inventori/inventori.php');
 }
@@ -185,8 +202,17 @@ if ($action === 'delete' && $id && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $db->prepare("DELETE FROM barang WHERE id = ?")->execute([$id]);
         setFlash('success', 'Product deleted.');
     } catch (PDOException $e) {
-        setFlash('error', 'Failed to delete product: ' . $e->getMessage());
+        // The row may still be referenced by a finance entry (FK constraint).
+        error_log('Delete product failed: ' . $e->getMessage());
+        setFlash('error', 'Could not delete the product. It may still be linked to a transaction.');
     }
+    redirect('modules/inventori/inventori.php');
+}
+
+// A destructive action that arrived by GET is refused explicitly, so the user
+// gets clear feedback instead of a page that silently ignores the click.
+if ($action === 'delete' && $id) {
+    setFlash('error', 'Delete must be submitted through the page buttons.');
     redirect('modules/inventori/inventori.php');
 }
 

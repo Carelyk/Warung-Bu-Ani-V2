@@ -35,7 +35,8 @@ if (($action === 'activate' || $action === 'deactivate') && $id && $_SERVER['REQ
             setFlash('success', 'User status updated.');
         }
     } catch (PDOException $e) {
-        setFlash('error', 'Failed to update user status.');
+        error_log('Update user status failed: ' . $e->getMessage());
+        setFlash('error', 'Could not update the user status. Please try again.');
     }
     redirect('modules/user_management/index.php');
 }
@@ -51,22 +52,35 @@ if ($action === 'delete' && $id && $_SERVER['REQUEST_METHOD'] === 'POST') {
             setFlash('error', 'The administrator account cannot be deleted.');
         }
     } catch (PDOException $e) {
-        setFlash('error', 'Failed to delete user.');
+        error_log('Delete user failed: ' . $e->getMessage());
+        setFlash('error', 'Could not delete the user. They may still be linked to records.');
     }
+    redirect('modules/user_management/index.php');
+}
+
+// Refuse a GET delete with clear feedback instead of silently ignoring it.
+if ($action === 'delete' && $id) {
+    setFlash('error', 'Delete must be submitted through the page buttons.');
     redirect('modules/user_management/index.php');
 }
 
 /* Update user */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'update_user') {
-    $id = $_POST['id'];
+    $id = clean($_POST['id'] ?? '');
     if ($me && $id == $me) {
         setFlash('error', 'You cannot change your own status or role here.');
         redirect('modules/user_management/index.php');
     }
-    $nama_lengkap = clean($_POST['nama_lengkap'] ?? '');
-    $username     = clean($_POST['username'] ?? '');
-    $role         = clean($_POST['role'] ?? 'user');
-    $status       = clean($_POST['status'] ?? 'pending');
+    // Column limits: users.nama_lengkap = varchar(50), users.username = varchar(30).
+    $nama_lengkap = limitText(clean($_POST['nama_lengkap'] ?? ''), 50);
+    $username     = limitText(clean($_POST['username'] ?? ''), 30);
+    $role         = oneOf(clean($_POST['role'] ?? ''), userRoles(), 'user');
+    $status       = oneOf(clean($_POST['status'] ?? ''), userStatuses(), 'pending');
+
+    if ($nama_lengkap === '' || $username === '') {
+        setFlash('error', 'Full name and username are required.');
+        redirect('modules/user_management/index.php');
+    }
 
     try {
         $stmt = $db->prepare("SELECT id FROM users WHERE username = ? AND id != ?");
@@ -74,21 +88,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'updat
         if ($stmt->fetch()) {
             setFlash('error', 'That username is already taken.');
         } else {
-            if ($role !== 'admin') {
-                $admin_count = (int) $db->query("SELECT COUNT(*) FROM users WHERE role = 'admin'")->fetchColumn();
-                $current_role = $db->prepare("SELECT role FROM users WHERE id = ?");
-                $current_role->execute([$id]);
-                if ($admin_count <= 1 && $current_role->fetchColumn() === 'admin') {
-                    setFlash('error', 'The last administrator cannot be demoted.');
+            $current_role = $db->prepare("SELECT role FROM users WHERE id = ?");
+            $current_role->execute([$id]);
+            $is_currently_admin = $current_role->fetchColumn() === 'admin';
+
+            // Refuse to remove the only administrator, either by demotion or by
+            // deactivating the account.
+            if ($is_currently_admin && ($role !== 'admin' || $status !== 'active')) {
+                $admin_count = (int) $db->query("SELECT COUNT(*) FROM users WHERE role = 'admin' AND status = 'active'")->fetchColumn();
+                if ($admin_count <= 1) {
+                    setFlash('error', 'The last active administrator cannot be demoted or deactivated.');
                     redirect('modules/user_management/index.php');
                 }
             }
+
             $db->prepare("UPDATE users SET nama_lengkap = ?, username = ?, role = ?, status = ? WHERE id = ?")
                ->execute([$nama_lengkap, $username, $role, $status, $id]);
             setFlash('success', 'User updated successfully.');
         }
     } catch (PDOException $e) {
-        setFlash('error', 'Failed to update user.');
+        error_log('Update user failed: ' . $e->getMessage());
+        setFlash('error', 'Could not update the user. Please try again.');
     }
     redirect('modules/user_management/index.php');
 }

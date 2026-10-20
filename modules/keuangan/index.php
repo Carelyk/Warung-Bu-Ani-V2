@@ -15,20 +15,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 $id     = $_POST['id'] ?? $_GET['id'] ?? '';
 
+// The category lists come from includes/functions.php so the dropdown, the
+// filter, and the server-side validation can never disagree.
 $income_categories  = ['Product Sales', 'Other Income'];
-$expense_categories = ['Stock Purchase', 'Salary', 'Rent', 'Utilities', 'Transport', 'Marketing', 'Other Expense'];
-$all_categories     = array_merge($income_categories, $expense_categories);
+$expense_categories = array_values(array_diff(financeCategories(), $income_categories));
+$all_categories     = financeCategories();
 $methods            = ['cash' => 'Cash', 'transfer' => 'Bank Transfer', 'qris' => 'QRIS'];
 
 /* ---------------------------------------------------------------------
  * Add transaction
  * ------------------------------------------------------------------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'add') {
-    $tanggal    = clean($_POST['tanggal'] ?? date('Y-m-d'));
-    $keterangan = clean($_POST['keterangan'] ?? '');
-    $jenis      = clean($_POST['jenis'] ?? 'masuk');
-    $kategori   = clean($_POST['kategori'] ?? 'Product Sales');
-    $metode     = clean($_POST['metode'] ?? 'cash');
+    $tanggal    = normalizeDate($_POST['tanggal'] ?? '', date('Y-m-d'));
+    $keterangan = limitText(clean($_POST['keterangan'] ?? ''), 1000);
+    $jenis      = oneOf(clean($_POST['jenis'] ?? ''), financeTypes(), 'masuk');
+    $kategori   = oneOf(clean($_POST['kategori'] ?? ''), financeCategories(), 'Other Expense');
+    $metode     = oneOf(clean($_POST['metode'] ?? ''), financeMethods(), 'cash');
     $jumlah     = preg_replace('/\D/', '', $_POST['jumlah'] ?? '0');
     if ($jumlah === '') $jumlah = '0';
     $jumlah     = (string) min(1000000000, (int) $jumlah);
@@ -40,7 +42,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'add') {
            ->execute([$tanggal, $keterangan, $kategori, $jenis, $metode, $jumlah, $user_id]);
         setFlash('success', 'Transaction added successfully.');
     } catch (PDOException $e) {
-        setFlash('error', 'Could not add transaction: ' . $e->getMessage());
+        error_log('Add transaction failed: ' . $e->getMessage());
+        setFlash('error', 'Could not add the transaction. Please try again.');
     }
     redirect('modules/keuangan/index.php');
 }
@@ -50,11 +53,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'add') {
  * ------------------------------------------------------------------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'edit') {
     $id         = clean($_POST['id'] ?? '');
-    $tanggal    = clean($_POST['tanggal'] ?? date('Y-m-d'));
-    $keterangan = clean($_POST['keterangan'] ?? '');
-    $jenis      = clean($_POST['jenis'] ?? 'masuk');
-    $kategori   = clean($_POST['kategori'] ?? 'Product Sales');
-    $metode     = clean($_POST['metode'] ?? 'cash');
+    $tanggal    = normalizeDate($_POST['tanggal'] ?? '', date('Y-m-d'));
+    $keterangan = limitText(clean($_POST['keterangan'] ?? ''), 1000);
+    $jenis      = oneOf(clean($_POST['jenis'] ?? ''), financeTypes(), 'masuk');
+    $kategori   = oneOf(clean($_POST['kategori'] ?? ''), financeCategories(), 'Other Expense');
+    $metode     = oneOf(clean($_POST['metode'] ?? ''), financeMethods(), 'cash');
     $jumlah     = preg_replace('/\D/', '', $_POST['jumlah'] ?? '0');
     if ($jumlah === '') $jumlah = '0';
     $jumlah     = (string) min(1000000000, (int) $jumlah);
@@ -64,7 +67,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'edit') {
            ->execute([$tanggal, $keterangan, $kategori, $jenis, $metode, $jumlah, $id]);
         setFlash('success', 'Transaction updated successfully.');
     } catch (PDOException $e) {
-        setFlash('error', 'Failed to update transaction: ' . $e->getMessage());
+        error_log('Update transaction failed: ' . $e->getMessage());
+        setFlash('error', 'Could not update the transaction. Please try again.');
     }
     redirect('modules/keuangan/index.php');
 }
@@ -77,8 +81,15 @@ if ($action === 'delete' && $id && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $db->prepare("DELETE FROM keuangan WHERE id = ?")->execute([$id]);
         setFlash('success', 'Transaction deleted.');
     } catch (PDOException $e) {
-        setFlash('error', 'Failed to delete transaction: ' . $e->getMessage());
+        error_log('Delete transaction failed: ' . $e->getMessage());
+        setFlash('error', 'Could not delete the transaction. Please try again.');
     }
+    redirect('modules/keuangan/index.php');
+}
+
+// Refuse a GET delete with a clear message rather than silently ignoring it.
+if ($action === 'delete' && $id) {
+    setFlash('error', 'Delete must be submitted through the page buttons.');
     redirect('modules/keuangan/index.php');
 }
 
